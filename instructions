@@ -1,0 +1,20 @@
+“Generate a Spring Boot 3.3 (Java 17) Gradle project named db2-to-pg-loader in package com.example.loader implementing a CLI data loader with three modes (simple, derived, custom) exactly as specified below. Do not put start/end keys in YAML. Parse --task=<name> and optional --range=start:end from CLI. Use two Hikari datasources (db2, pg) and Spring JdbcTemplate. Implement the following files with the exact responsibilities, method signatures, and behavior (UPSERT writer, DB-side join for derived, custom SQL reader). Include a minimal application.yml and sample loader.tasks for test_simple, test_derived, and test_custom. Ensure the code compiles.
+
+Then paste the full source for:
+	•	App.java, DataSourceConfig.java, LoaderProperties.java, KeyRange.java, KeySpec.java, RowStream.java, Transforms.java, SimpleReader.java, DerivedReader.java, CustomReader.java, PgWriter.java, TaskRunner.java, application.yml, build.gradle.
+
+Follow these semantics:
+	•	simple: use mappings.tabledb2, map columns; if --range supplied, require exactly one primary-key-columns entry with type: default and filter/ORDER BY that column; otherwise load all rows.
+	•	derived: use derived.sources aliases and derived.join.joinKeys to build a DB-side JOIN; range (if provided) applies to the left alias key (prefer the type: default key if it belongs to left alias, else use the left joinKey column). Output pgcolumn aliases in SELECT and map by those aliases.
+	•	custom: execute custom.selectSql as-is; if it contains :start/:end and --range was passed, replace with positional binds and set parameters; else ignore range.
+	•	writer: writetype=batch → PreparedStatement UPSERT; writetype=copy → for v1 just call the same UPSERT with a TODO for staging+copy.
+	•	buffer rows in batches of 1000 when writing.
+
+Finally, provide shell commands to run:
+	•	./gradlew bootJar
+	•	java -jar build/libs/db2-to-pg-loader-1.0.0.jar --task=test_simple
+	•	java -jar build/libs/db2-to-pg-loader-1.0.0.jar --task=test_simple --range=1:10000
+	•	java -jar build/libs/db2-to-pg-loader-1.0.0.jar --task=test_derived
+	•	java -jar build/libs/db2-to-pg-loader-1.0.0.jar --task=test_custom --range=500:900
+
+Ensure helpful error messages on misconfiguration and that simple/derived/custom each read DB2 and upsert to Postgres using the mapping rules above.
