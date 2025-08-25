@@ -1,20 +1,98 @@
-“Generate a Spring Boot 3.3 (Java 17) Gradle project named db2-to-pg-loader in package com.example.loader implementing a CLI data loader with three modes (simple, derived, custom) exactly as specified below. Do not put start/end keys in YAML. Parse --task=<name> and optional --range=start:end from CLI. Use two Hikari datasources (db2, pg) and Spring JdbcTemplate. Implement the following files with the exact responsibilities, method signatures, and behavior (UPSERT writer, DB-side join for derived, custom SQL reader). Include a minimal application.yml and sample loader.tasks for test_simple, test_derived, and test_custom. Ensure the code compiles.
+Here’s a copy-paste LLM prompt you can use to generate the app end-to-end.
 
-Then paste the full source for:
-	•	App.java, DataSourceConfig.java, LoaderProperties.java, KeyRange.java, KeySpec.java, RowStream.java, Transforms.java, SimpleReader.java, DerivedReader.java, CustomReader.java, PgWriter.java, TaskRunner.java, application.yml, build.gradle.
+⸻
 
-Follow these semantics:
-	•	simple: use mappings.tabledb2, map columns; if --range supplied, require exactly one primary-key-columns entry with type: default and filter/ORDER BY that column; otherwise load all rows.
-	•	derived: use derived.sources aliases and derived.join.joinKeys to build a DB-side JOIN; range (if provided) applies to the left alias key (prefer the type: default key if it belongs to left alias, else use the left joinKey column). Output pgcolumn aliases in SELECT and map by those aliases.
-	•	custom: execute custom.selectSql as-is; if it contains :start/:end and --range was passed, replace with positional binds and set parameters; else ignore range.
-	•	writer: writetype=batch → PreparedStatement UPSERT; writetype=copy → for v1 just call the same UPSERT with a TODO for staging+copy.
-	•	buffer rows in batches of 1000 when writing.
+🚀 Prompt: Build a Java CLI that lists Veracode apps with “Fix for Policy = Required” in the “Release” sandbox
 
-Finally, provide shell commands to run:
-	•	./gradlew bootJar
-	•	java -jar build/libs/db2-to-pg-loader-1.0.0.jar --task=test_simple
-	•	java -jar build/libs/db2-to-pg-loader-1.0.0.jar --task=test_simple --range=1:10000
-	•	java -jar build/libs/db2-to-pg-loader-1.0.0.jar --task=test_derived
-	•	java -jar build/libs/db2-to-pg-loader-1.0.0.jar --task=test_custom --range=500:900
+You are a senior Java engineer. Produce a complete, runnable Java 17 Gradle CLI that uses Veracode REST APIs with HMAC auth to automate this workflow:
 
-Ensure helpful error messages on misconfiguration and that simple/derived/custom each read DB2 and upsert to Postgres using the mapping rules above.
+User flow to automate (UI equivalent):
+My Portfolio → Applications (filtered by a string like AD000007442) → open each Application → open sandbox named “Release” → Triage Flaws → apply filter “Fix for Policy = Required” → list apps that have any results.
+
+Requirements
+
+Functional
+	1.	List Applications via Veracode Applications API (REST, paginated).
+	•	Optional substring filter (e.g., AD000007442) applied to the application JSON (name or any field).
+	2.	For each application, list Sandboxes and find sandbox with name = “Release” (case-insensitive, configurable).
+	3.	Query Findings/Triage Flaws for that sandbox using Findings API (REST v2) with:
+	•	context={sandbox_guid}
+	•	violates_policy=TRUE (equivalent to “Fix for Policy = Required”)
+	•	Paginate to count all results.
+	4.	Output:
+	•	Console: a list like • <App Name> → <N> Required flaw(s) for apps with N > 0.
+	•	CSV (optional): columns = Application Name,Application GUID,Release Sandbox GUID,Required Flaws Count,Reported At.
+
+CLI Flags
+	•	--appFilter=<substring> (optional; default: none)
+	•	--sandbox=<name> (optional; default: Release)
+	•	--size=<int> page size for REST paging (default: 50)
+	•	--csv=<path> optional CSV output file
+	•	(nice-to-have) --threads=<int> for parallelizing app processing safely (be rate-limit aware)
+
+Auth & Libraries
+	•	Use Veracode HMAC signing library for Java: com.veracode:api-signing:3.0.5
+	•	Read creds from env vars: VERACODE_API_ID, VERACODE_API_KEY (fail fast if missing).
+	•	HTTP: org.apache.httpcomponents.client5:httpclient5
+	•	JSON: Jackson (databind, core, annotations)
+	•	Java 17, Gradle application plugin.
+
+Endpoints & Behavior (implement as constants)
+	•	Base URL: https://api.veracode.com
+	•	Applications list (paged): /appsec/v1/applications/?page={page}&size={size}
+	•	Read _embedded.applications[], each has guid and name under profile.name (fallback to name).
+	•	Use page.total_pages for pagination.
+	•	Sandboxes for app: /appsec/v1/applications/{applicationGuid}/sandboxes
+	•	Find sandbox where name.equalsIgnoreCase(<sandboxFlag>), read its guid.
+	•	Findings (triage flaws) for sandbox:
+/appsec/v2/applications/{appGuid}/findings?context={sandboxGuid}&violates_policy=TRUE&page={page}&size={size}
+	•	Sum _embedded.findings.length across all pages to get requiredCount.
+
+Error Handling & Robustness
+	•	Fail fast with clear messages on missing env vars or non-2xx responses (include response body snippet).
+	•	Handle pagination correctly for both Applications and Findings.
+	•	If an app doesn’t have the target sandbox, skip quietly.
+	•	If Findings returns 0 for that sandbox, don’t print the app.
+	•	Defensive JSON parsing (null checks).
+	•	(nice-to-have) Backoff & retry for transient errors (HTTP 429, 5xx) with capped retries.
+
+Project Output
+
+Provide:
+	1.	build.gradle with dependencies and Java toolchain 17, application plugin, mainClass.
+	2.	src/main/java/.../Main.java – single-file CLI OK (or a tiny VeracodeClient helper).
+	3.	Minimal inline comments explaining key steps.
+	4.	Example run commands:
+	•	export VERACODE_API_ID=XXXX; export VERACODE_API_KEY=YYYY
+	•	./gradlew clean build
+	•	java -jar build/libs/<artifact>.jar --appFilter=AD000007442 --csv=veracode_required_flaws.csv
+	5.	Example console output:
+
+=== Veracode: Apps with Fix-for-Policy (Required) in 'Release' sandbox ===
+(Filtering apps whose JSON contains: 'AD000007442')
+• Payments Service → 7 Required flaw(s)
+• Customer Web → 3 Required flaw(s)
+
+Checked 58 application(s). 2 have Required flaws in 'Release' sandbox.
+CSV written: veracode_required_flaws.csv
+
+
+	6.	Clear instructions at the top of Main.java on how to configure and run.
+
+Code Quality & Style
+	•	Keep it simple and readable; no frameworks beyond the libraries above.
+	•	Small VeracodeClient wrapper that signs requests (using RequestSigner.signRequest(req)), executes, validates status, and returns a Jackson JsonNode.
+	•	Utility methods: pagination loop, CSV writer (quote fields when needed), URL-encode GUIDs.
+
+Acceptance Criteria
+	•	Running with valid creds prints only those apps that have ≥1 finding with violates_policy=TRUE in the specified sandbox.
+	•	CSV (if path provided) is created with all required columns.
+	•	App gracefully handles apps without “Release” sandbox.
+	•	No hardcoded secrets.
+	•	Compiles on Java 17 with ./gradlew build and runs as documented.
+
+Deliverables: Paste the full build.gradle and Main.java (and any helper class) in a single response, ready to compile and run.
+
+⸻
+
+If anything is unclear, assume sensible defaults and proceed.
